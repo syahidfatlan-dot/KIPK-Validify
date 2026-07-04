@@ -291,6 +291,14 @@
 
   .note{font-size:11.5px;color:var(--slate);margin-top:10px;font-style:italic;}
   .empty{padding:30px;text-align:center;color:var(--slate);font-size:13px;}
+  .footer{
+    text-align:center;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:11px;
+    letter-spacing:.08em;
+    color:var(--slate);
+    padding:24px 0 4px;
+  }
 
   ::-webkit-scrollbar{height:8px;width:8px;}
   ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
@@ -304,7 +312,6 @@
       <div class="eyebrow">KIPK · Sistem Pendukung Keputusan</div>
       <h1>KIPK-Validify</h1>
     </div>
-    <div class="sub">Seleksi awal (AHP–SAW) dan evaluasi berkelanjutan (Z-Score) penerima KIP-Kuliah, berbasis data simulasi.</div>
   </div>
 
   <div class="tabs">
@@ -319,7 +326,6 @@
     <div class="card">
       <span class="section-label">AHP — Matriks Perbandingan Berpasangan</span>
       <h2>Kriteria Seleksi Awal</h2>
-      <p class="desc">Isi sisi atas matriks (skala Saaty 1–9). Sisi bawah dan diagonal terisi otomatis (resiprokal / 1). Bobot dihitung dengan normalisasi kolom lalu rata-rata baris, diikuti uji konsistensi (CR).</p>
       <div class="table-wrap">
         <table class="ahp-table" id="ahpTable"></table>
       </div>
@@ -335,7 +341,6 @@
     <div class="card">
       <span class="section-label">Tahap 1 — Referensi</span>
       <h2>Rubrik Konversi Skor 1–5</h2>
-      <p class="desc">Skor tinggi = kondisi lebih membutuhkan. Gunakan tabel ini sebagai acuan saat mengisi nilai kriteria pendaftar (1–5) di bawah.</p>
       <div class="table-wrap">
         <table id="rubrikTable">
           <thead>
@@ -362,10 +367,9 @@
     <div class="card">
       <span class="section-label">Tahap 1 — Input</span>
       <h2>Data Pendaftar</h2>
-      <p class="desc">Setiap kriteria dinilai pada skala 1–5. Tambah / hapus baris secara manual, atau hasilkan data simulasi acak. Persentase diterima menentukan proporsi pendaftar teratas yang lolos — jumlah yang Diterima menyesuaikan otomatis mengikuti jumlah pendaftar, dan langsung menjadi populasi Tahap 2.</p>
       <div class="row-inputs">
         <label class="field"><span>Persentase Diterima (%)</span><input type="number" id="kuotaInput" value="20" min="1" max="100" style="width:90px;"></label>
-        <label class="field"><span>Jumlah Data Acak</span><input type="number" id="nPendaftarInput" value="50" min="1" max="1000" style="width:90px;"></label>
+        <label class="field"><span>Jumlah Data Acak</span><input type="number" id="nPendaftarInput" value="100" min="1" max="1000" style="width:90px;"></label>
         <label class="field"><span>Seed Acak</span><input type="number" id="seedPendaftarInput" value="2026" style="width:90px;"></label>
       </div>
       <div class="btn-row" style="margin-top:0;margin-bottom:14px;">
@@ -380,9 +384,22 @@
     </div>
 
     <div class="card">
+      <span class="section-label">Tahap 2 — AHP Indikator Keberlanjutan</span>
+      <h2>Bobot Indikator Risiko (AHP)</h2>
+      <div class="table-wrap">
+        <table class="ahp-table" id="ahpTable2"></table>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnHitungAHP2">Hitung Bobot &amp; CR</button>
+        <button class="btn ghost small" id="btnResetAHP2">Kembalikan ke Nilai Default</button>
+      </div>
+      <div id="ahpWeightsOut2" style="margin-top:20px;"></div>
+      <div id="ahpCROut2"></div>
+    </div>
+
+    <div class="card">
       <span class="section-label">Tahap 2 — Populasi (Otomatis)</span>
       <h2>Data Akademik Mahasiswa yang Diterima (Tahap 1)</h2>
-      <p class="desc">Populasi ini <strong>bukan</strong> data baru — ini adalah pendaftar yang berstatus <em>Diterima</em> pada Tahap 1, yang kini diikuti perkembangan akademik &amp; ekonominya untuk dinilai risiko keberlanjutannya dengan Z-Score. Daftar ini otomatis mengikuti kuota dan hasil SAW di atas; nilai akademik (IPK, organisasi, prestasi, Δ pendapatan) dibuat sebagai simulasi awal dan dapat diedit langsung.</p>
       <div class="table-wrap scroll">
         <table id="mhsTable"></table>
       </div>
@@ -400,6 +417,8 @@
   <div class="page" id="p3">
     <div id="p3content"></div>
   </div>
+
+  <div class="footer">KIPK-Validify</div>
 
 </div>
 
@@ -474,10 +493,32 @@ const DEFAULT_A = [
 ];
 const RI_TABLE = {1:0.0,2:0.0,3:0.58,4:0.90,5:1.12,6:1.24,7:1.32,8:1.41,9:1.45,10:1.49};
 
+// Tahap 2 — indikator keberlanjutan (order matches formula: w1,w2,w3,w4)
+const CRITERIA2 = ["X1_ipk","X4_deltaP","X2_organisasi","X3_prestasi"];
+const CRITERIA2_LABEL = {
+  X1_ipk:"IPK",
+  X4_deltaP:"Δ Pendapatan Keluarga",
+  X2_organisasi:"Keaktifan Organisasi",
+  X3_prestasi:"Capaian Prestasi",
+};
+// Justifikasi default: IPK adalah indikator akademik utama keberlanjutan studi;
+// Δ Pendapatan mencerminkan kelayakan ekonomi berkelanjutan; Organisasi & Prestasi
+// adalah indikator pendukung soft-skill/komitmen, dengan Prestasi dinilai sedikit
+// lebih berbobot karena capaiannya lebih terukur/terverifikasi dibanding organisasi.
+const DEFAULT_A2 = [
+  [1,    2,    4,    3   ],  // IPK
+  [1/2,  1,    3,    2   ],  // Delta Pendapatan
+  [1/4,  1/3,  1,    1/2 ],  // Organisasi
+  [1/3,  1/2,  2,    1   ],  // Prestasi
+];
+
 let state = {
   ahpMatrix: DEFAULT_A.map(r=>r.slice()),
   weights: null,      // computed weights array (order = CRITERIA)
   crInfo: null,       // {lambdaMax, CI, RI, CR, consistent}
+  ahpMatrix2: DEFAULT_A2.map(r=>r.slice()),
+  weights2: null,     // computed weights array (order = CRITERIA2 -> w1..w4)
+  crInfo2: null,
   pendaftar: [],       // [{id, C1..C5}]
   mhs: []              // [{id, X1_ipk, X2_organisasi, X3_prestasi, X4_deltaP}]
 };
@@ -539,11 +580,9 @@ function renderAhpTable(){
 }
 
 /* ============================================================
-   AHP COMPUTATION
+   AHP COMPUTATION (pure, reusable core)
    ============================================================ */
-function computeAHP(){
-  const n = 5;
-  const A = state.ahpMatrix;
+function ahpComputeCore(A, n, RI_TABLE){
   const colSums = [];
   for(let j=0;j<n;j++){
     let s=0; for(let i=0;i<n;i++) s+=A[i][j];
@@ -552,16 +591,20 @@ function computeAHP(){
   const Anorm = A.map(row => row.map((v,j)=>v/colSums[j]));
   const weights = Anorm.map(row => mean(row));
 
-  // lambda max = mean( (A·w)_i / w_i )
   const Aw = A.map(row => row.reduce((acc,v,j)=>acc+v*weights[j],0));
   const ratios = Aw.map((v,i)=>v/weights[i]);
   const lambdaMax = mean(ratios);
   const CI = (lambdaMax - n) / (n - 1);
   const RI = RI_TABLE[n];
   const CR = RI !== 0 ? CI/RI : 0;
+  return {weights, lambdaMax, CI, RI, CR, consistent: CR < 0.10};
+}
 
-  state.weights = weights;
-  state.crInfo = {lambdaMax, CI, RI, CR, consistent: CR < 0.10};
+function computeAHP(){
+  const n = 5;
+  const result = ahpComputeCore(state.ahpMatrix, n, RI_TABLE);
+  state.weights = result.weights;
+  state.crInfo = {lambdaMax:result.lambdaMax, CI:result.CI, RI:result.RI, CR:result.CR, consistent:result.consistent};
   renderAhpResults();
   syncMhsWithDiterima();
 }
@@ -597,6 +640,82 @@ document.getElementById('btnResetAHP').addEventListener('click', ()=>{
   state.ahpMatrix = DEFAULT_A.map(r=>r.slice());
   renderAhpTable();
   computeAHP();
+});
+
+/* ============================================================
+   RENDER + COMPUTE: AHP MATRIX — TAHAP 2 (indikator keberlanjutan)
+   ============================================================ */
+function renderAhpTable2(){
+  const tbl = document.getElementById('ahpTable2');
+  const n = CRITERIA2.length;
+  let html = '<thead><tr><th></th>';
+  CRITERIA2.forEach(c=>html += `<th>${CRITERIA2_LABEL[c]}</th>`);
+  html += '</tr></thead><tbody>';
+  for(let i=0;i<n;i++){
+    html += `<tr><th style="text-align:left;">${CRITERIA2_LABEL[CRITERIA2[i]]}</th>`;
+    for(let j=0;j<n;j++){
+      if(i===j){
+        html += `<td class="diag">1</td>`;
+      } else if(j>i){
+        html += `<td><input type="text" data-i="${i}" data-j="${j}" class="ahp2-input" value="${formatAhpVal(state.ahpMatrix2[i][j])}"></td>`;
+      } else {
+        html += `<td class="lower">${formatAhpVal(state.ahpMatrix2[i][j])}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('.ahp2-input').forEach(inp=>{
+    inp.addEventListener('change', e=>{
+      const i = +e.target.dataset.i, j = +e.target.dataset.j;
+      const v = parseAhpVal(e.target.value);
+      state.ahpMatrix2[i][j] = v;
+      state.ahpMatrix2[j][i] = 1/v;
+      renderAhpTable2();
+    });
+  });
+}
+
+function computeAHP2(){
+  const n = CRITERIA2.length;
+  const result = ahpComputeCore(state.ahpMatrix2, n, RI_TABLE);
+  state.weights2 = result.weights;
+  state.crInfo2 = {lambdaMax:result.lambdaMax, CI:result.CI, RI:result.RI, CR:result.CR, consistent:result.consistent};
+  renderAhpResults2();
+}
+
+function renderAhpResults2(){
+  const wOut = document.getElementById('ahpWeightsOut2');
+  if(!state.weights2){ wOut.innerHTML=''; document.getElementById('ahpCROut2').innerHTML=''; return; }
+  const maxW = Math.max(...state.weights2);
+  let html = '<span class="section-label">Bobot Indikator</span>';
+  CRITERIA2.forEach((c,i)=>{
+    const w = state.weights2[i];
+    html += `<div class="weight-row">
+      <div class="lbl">${CRITERIA2_LABEL[c]}</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${(w/maxW*100).toFixed(1)}%"></div></div>
+      <div class="val">${w.toFixed(4)}</div>
+    </div>`;
+  });
+  wOut.innerHTML = html;
+
+  const cr = state.crInfo2;
+  document.getElementById('ahpCROut2').innerHTML = `
+    <div class="cr-box">
+      <div class="cr-item"><div class="k">λ maks</div><div class="v">${cr.lambdaMax.toFixed(4)}</div></div>
+      <div class="cr-item"><div class="k">CI</div><div class="v">${cr.CI.toFixed(4)}</div></div>
+      <div class="cr-item"><div class="k">RI (n=4)</div><div class="v">${cr.RI}</div></div>
+      <div class="cr-item"><div class="k">CR</div><div class="v">${cr.CR.toFixed(4)}</div></div>
+      <span class="stamp ${cr.consistent ? 'accept' : 'risk'}">${cr.consistent ? 'Konsisten (CR < 0.10)' : 'Tidak Konsisten — Revisi Matriks'}</span>
+    </div>`;
+}
+
+document.getElementById('btnHitungAHP2').addEventListener('click', computeAHP2);
+document.getElementById('btnResetAHP2').addEventListener('click', ()=>{
+  state.ahpMatrix2 = DEFAULT_A2.map(r=>r.slice());
+  renderAhpTable2();
+  computeAHP2();
 });
 
 /* ============================================================
@@ -706,7 +825,7 @@ function syncMhsWithDiterima(){
       id: r.id,
       Peringkat_Tahap1: r.Peringkat,
       Skor_SAW: r.Skor_SAW,
-      X1_ipk: Math.round(clip(rng.normal(MHS_PARAMS.meanIpk, MHS_PARAMS.stdIpk), 0, 4)*1000)/1000,
+      X1_ipk: Math.round(clip(rng.normal(MHS_PARAMS.meanIpk, MHS_PARAMS.stdIpk), 2.75, 4)*1000)/1000,
       X2_organisasi: clip(rng.poisson(MHS_PARAMS.lamOrg), 0, null),
       X3_prestasi: clip(rng.poisson(MHS_PARAMS.lamPres), 0, null),
       X4_deltaP: Math.round(rng.normal(MHS_PARAMS.meanDp, MHS_PARAMS.stdDp)),
@@ -728,7 +847,7 @@ function renderMhsTable(){
       <td>${r.Peringkat_Tahap1}</td>
       <td>${r.id}</td>
       <td>${r.Skor_SAW.toFixed(4)}</td>
-      <td><input type="number" min="0" max="4" step="0.01" data-idx="${idx}" data-f="X1_ipk" class="mhs-input" value="${r.X1_ipk}" style="width:66px;"></td>
+      <td><input type="number" min="2.75" max="4" step="0.01" data-idx="${idx}" data-f="X1_ipk" class="mhs-input" value="${r.X1_ipk}" style="width:66px;"></td>
       <td><input type="number" min="0" data-idx="${idx}" data-f="X2_organisasi" class="mhs-input" value="${r.X2_organisasi}" style="width:56px;"></td>
       <td><input type="number" min="0" data-idx="${idx}" data-f="X3_prestasi" class="mhs-input" value="${r.X3_prestasi}" style="width:56px;"></td>
       <td><input type="number" step="1000" data-idx="${idx}" data-f="X4_deltaP" class="mhs-input" value="${r.X4_deltaP}" style="width:100px;"></td>
@@ -741,7 +860,7 @@ function renderMhsTable(){
       const idx = +e.target.dataset.idx, f = e.target.dataset.f;
       let v = parseFloat(e.target.value);
       if(isNaN(v)) v = 0;
-      if(f==='X1_ipk') v = clip(v,0,4);
+      if(f==='X1_ipk') v = clip(v,2.75,4);
       if(f==='X2_organisasi' || f==='X3_prestasi') v = clip(Math.round(v),0,null);
       state.mhs[idx][f] = v;
       e.target.value = v;
@@ -803,7 +922,6 @@ function renderPage2(){
     <div class="card">
       <span class="section-label">SAW</span>
       <h2>Peringkat Hasil Seleksi Awal</h2>
-      <p class="desc">Skor SAW = Σ (nilai kriteria / 5) × bobot AHP. ${persen}% pendaftar dengan peringkat teratas (1 sampai ${kuota} dari ${rows.length}) dinyatakan Diterima.</p>
       <div class="table-wrap scroll">
         <table id="sawTable"></table>
       </div>
@@ -845,11 +963,18 @@ function classify(s){
   if(s < 2.5) return 'Perlu Ditinjau';
   return 'Berisiko Tinggi';
 }
-const RISK_WEIGHTS = { organisasi: 0.5, prestasi: 0.5 }; // bobot faktor peredam risiko
-
 function safeZ(v, m, s){ return s > 0 ? (v - m) / s : 0; }
 
+function getRiskWeights(){
+  if(state.weights2){
+    // CRITERIA2 order: X1_ipk, X4_deltaP, X2_organisasi, X3_prestasi -> w1..w4
+    return { w1: state.weights2[0], w2: state.weights2[1], w3: state.weights2[2], w4: state.weights2[3] };
+  }
+  return { w1: 0.25, w2: 0.25, w3: 0.25, w4: 0.25 };
+}
+
 function computeZScore(){
+  const W = getRiskWeights();
   const X1 = state.mhs.map(r=>r.X1_ipk);
   const X2 = state.mhs.map(r=>r.X2_organisasi);
   const X3 = state.mhs.map(r=>r.X3_prestasi);
@@ -863,12 +988,11 @@ function computeZScore(){
     const z2 = safeZ(r.X2_organisasi, m2, s2);
     const z3 = safeZ(r.X3_prestasi, m3, s3);
     const z4 = safeZ(r.X4_deltaP, m4, s4);
-    const risikoAkademikEkonomi = Math.max(-z1,0) + Math.max(z4,0);
-    const peredam = RISK_WEIGHTS.organisasi*Math.max(z2,0) + RISK_WEIGHTS.prestasi*Math.max(z3,0);
-    const skor = Math.max(risikoAkademikEkonomi - peredam, 0);
+    // Skor Risiko = w1*(-z_IPK) + w2*(z_DeltaP) + w3*(-z_Organisasi) + w4*(-z_Prestasi)
+    const skor = W.w1*(-z1) + W.w2*(z4) + W.w3*(-z2) + W.w4*(-z3);
     return {...r, z_X1:z1, z_X2:z2, z_X3:z3, z_X4:z4, skor_risiko: Math.round(skor*1000)/1000, status: classify(skor)};
   });
-  return {rows, stats:{
+  return {rows, weights:W, stats:{
     X1_ipk:{mean:m1, std:s1},
     X2_organisasi:{mean:m2, std:s2},
     X3_prestasi:{mean:m3, std:s3},
@@ -885,7 +1009,7 @@ function renderPage3(){
     target.innerHTML = `<div class="card"><p class="empty">Belum ada mahasiswa Diterima. Pastikan bobot AHP sudah dihitung dan ada pendaftar yang lolos kuota di halaman <strong>Data &amp; Input</strong>.</p></div>`;
     return;
   }
-  const {rows, stats} = computeZScore();
+  const {rows, stats, weights} = computeZScore();
   const n = rows.length;
   const statusOrder = ['Layak','Perlu Ditinjau','Berisiko Tinggi'];
   const counts = {}, pct = {};
@@ -933,25 +1057,8 @@ function renderPage3(){
     </div>
 
     <div class="card">
-      <span class="section-label">Metodologi</span>
-      <h2>Formula Skor Risiko</h2>
-      <p class="desc">
-        Skor risiko akademik–ekonomi (IPK turun &amp; pendapatan naik relatif terhadap populasi) <strong>diperlemah</strong> oleh keaktifan organisasi dan capaian prestasi — mahasiswa yang aktif/berprestasi dianggap menunjukkan komitmen keberlanjutan, sehingga skor risikonya diturunkan (dengan batas bawah 0).
-      </p>
-      <div class="table-wrap"><table>
-        <tbody>
-          <tr><td style="width:55%;color:var(--slate);">Risiko Akademik–Ekonomi</td><td>max(−z_IPK, 0) + max(z_ΔPendapatan, 0)</td></tr>
-          <tr><td style="color:var(--slate);">Peredam Risiko</td><td>${RISK_WEIGHTS.organisasi} × max(z_Organisasi, 0) + ${RISK_WEIGHTS.prestasi} × max(z_Prestasi, 0)</td></tr>
-          <tr><td style="color:var(--slate);font-weight:600;">Skor Risiko Akhir</td><td style="font-weight:600;">max(Risiko Akademik–Ekonomi − Peredam Risiko, 0)</td></tr>
-        </tbody>
-      </table></div>
-      <p class="note">Bobot peredam (0.5 untuk organisasi &amp; prestasi) dapat diubah sesuai kebijakan — beri tahu saya jika ingin nilai lain.</p>
-    </div>
-
-    <div class="card">
       <span class="section-label">Rincian</span>
       <h2>Klasifikasi Seluruh Mahasiswa Diterima (${n} orang)</h2>
-      <p class="desc">Populasi ini adalah pendaftar yang berstatus Diterima pada Tahap 1. Setiap mahasiswa dijabarkan beserta status hasil klasifikasi Z-Score, diurutkan dari skor risiko tertinggi ke terendah.</p>
       <div class="table-wrap scroll"><table id="top5Table"></table></div>
     </div>
   `;
@@ -1021,6 +1128,8 @@ document.querySelectorAll('.tab').forEach(tab=>{
    ============================================================ */
 renderAhpTable();
 computeAHP();
+renderAhpTable2();
+computeAHP2();
 genPendaftar();
 </script>
 </body>
