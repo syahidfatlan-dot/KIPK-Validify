@@ -333,6 +333,33 @@
     </div>
 
     <div class="card">
+      <span class="section-label">Tahap 1 — Referensi</span>
+      <h2>Rubrik Konversi Skor 1–5</h2>
+      <p class="desc">Skor tinggi = kondisi lebih membutuhkan. Gunakan tabel ini sebagai acuan saat mengisi nilai kriteria pendaftar (1–5) di bawah.</p>
+      <div class="table-wrap">
+        <table id="rubrikTable">
+          <thead>
+            <tr>
+              <th>Skor</th>
+              <th>C1 Penghasilan/Kapita</th>
+              <th>C2 Tanggungan</th>
+              <th>C3 Status Rumah</th>
+              <th>C4 Kendaraan</th>
+              <th>C5 Nilai Rapor</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="font-weight:600;">5</td><td>≤ Rp 1.000.000</td><td>≥ 5 orang</td><td>Menumpang/tidak layak</td><td>Tidak punya</td><td>≥ 90</td></tr>
+            <tr><td style="font-weight:600;">4</td><td>Rp 1–2 juta</td><td>4 orang</td><td>Kontrak murah</td><td>Sepeda</td><td>80–89,9</td></tr>
+            <tr><td style="font-weight:600;">3</td><td>Rp 2–3 juta</td><td>3 orang</td><td>Kontrak mahal</td><td>Motor 1</td><td>70–79,9</td></tr>
+            <tr><td style="font-weight:600;">2</td><td>Rp 3–4 juta</td><td>2 orang</td><td>Milik sederhana</td><td>Motor 2+</td><td>65–69,9</td></tr>
+            <tr><td style="font-weight:600;">1</td><td>&gt; Rp 4 juta</td><td>1 orang</td><td>Milik baik/mewah</td><td>Mobil</td><td>&lt; 65</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
       <span class="section-label">Tahap 1 — Input</span>
       <h2>Data Pendaftar</h2>
       <p class="desc">Setiap kriteria dinilai pada skala 1–5. Tambah / hapus baris secara manual, atau hasilkan data simulasi acak. Persentase diterima menentukan proporsi pendaftar teratas yang lolos — jumlah yang Diterima menyesuaikan otomatis mengikuti jumlah pendaftar, dan langsung menjadi populasi Tahap 2.</p>
@@ -818,21 +845,33 @@ function classify(s){
   if(s < 2.5) return 'Perlu Ditinjau';
   return 'Berisiko Tinggi';
 }
+const RISK_WEIGHTS = { organisasi: 0.5, prestasi: 0.5 }; // bobot faktor peredam risiko
+
+function safeZ(v, m, s){ return s > 0 ? (v - m) / s : 0; }
+
 function computeZScore(){
   const X1 = state.mhs.map(r=>r.X1_ipk);
+  const X2 = state.mhs.map(r=>r.X2_organisasi);
+  const X3 = state.mhs.map(r=>r.X3_prestasi);
   const X4 = state.mhs.map(r=>r.X4_deltaP);
   const m1 = mean(X1), s1 = sampleStd(X1);
+  const m2 = mean(X2), s2 = sampleStd(X2);
+  const m3 = mean(X3), s3 = sampleStd(X3);
   const m4 = mean(X4), s4 = sampleStd(X4);
   const rows = state.mhs.map(r=>{
-    const z1 = (r.X1_ipk - m1) / s1;
-    const z4 = (r.X4_deltaP - m4) / s4;
-    const skor = Math.max(-z1,0) + Math.max(z4,0);
-    return {...r, z_X1: z1, z_X4: z4, skor_risiko: skor, status: classify(skor)};
+    const z1 = safeZ(r.X1_ipk, m1, s1);
+    const z2 = safeZ(r.X2_organisasi, m2, s2);
+    const z3 = safeZ(r.X3_prestasi, m3, s3);
+    const z4 = safeZ(r.X4_deltaP, m4, s4);
+    const risikoAkademikEkonomi = Math.max(-z1,0) + Math.max(z4,0);
+    const peredam = RISK_WEIGHTS.organisasi*Math.max(z2,0) + RISK_WEIGHTS.prestasi*Math.max(z3,0);
+    const skor = Math.max(risikoAkademikEkonomi - peredam, 0);
+    return {...r, z_X1:z1, z_X2:z2, z_X3:z3, z_X4:z4, skor_risiko: Math.round(skor*1000)/1000, status: classify(skor)};
   });
   return {rows, stats:{
     X1_ipk:{mean:m1, std:s1},
-    X2_organisasi:{mean:mean(state.mhs.map(r=>r.X2_organisasi)), std:sampleStd(state.mhs.map(r=>r.X2_organisasi))},
-    X3_prestasi:{mean:mean(state.mhs.map(r=>r.X3_prestasi)), std:sampleStd(state.mhs.map(r=>r.X3_prestasi))},
+    X2_organisasi:{mean:m2, std:s2},
+    X3_prestasi:{mean:m3, std:s3},
     X4_deltaP:{mean:m4, std:s4},
   }};
 }
@@ -891,6 +930,22 @@ function renderPage3(){
       <span class="section-label">Profil</span>
       <h2>Rata-Rata Karakteristik per Status</h2>
       <div class="table-wrap"><table id="groupTable"></table></div>
+    </div>
+
+    <div class="card">
+      <span class="section-label">Metodologi</span>
+      <h2>Formula Skor Risiko</h2>
+      <p class="desc">
+        Skor risiko akademik–ekonomi (IPK turun &amp; pendapatan naik relatif terhadap populasi) <strong>diperlemah</strong> oleh keaktifan organisasi dan capaian prestasi — mahasiswa yang aktif/berprestasi dianggap menunjukkan komitmen keberlanjutan, sehingga skor risikonya diturunkan (dengan batas bawah 0).
+      </p>
+      <div class="table-wrap"><table>
+        <tbody>
+          <tr><td style="width:55%;color:var(--slate);">Risiko Akademik–Ekonomi</td><td>max(−z_IPK, 0) + max(z_ΔPendapatan, 0)</td></tr>
+          <tr><td style="color:var(--slate);">Peredam Risiko</td><td>${RISK_WEIGHTS.organisasi} × max(z_Organisasi, 0) + ${RISK_WEIGHTS.prestasi} × max(z_Prestasi, 0)</td></tr>
+          <tr><td style="color:var(--slate);font-weight:600;">Skor Risiko Akhir</td><td style="font-weight:600;">max(Risiko Akademik–Ekonomi − Peredam Risiko, 0)</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Bobot peredam (0.5 untuk organisasi &amp; prestasi) dapat diubah sesuai kebijakan — beri tahu saya jika ingin nilai lain.</p>
     </div>
 
     <div class="card">
